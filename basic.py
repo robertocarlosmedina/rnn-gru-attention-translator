@@ -1,3 +1,5 @@
+import math
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
@@ -6,6 +8,7 @@ from termcolor import colored
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from torchtext.datasets import Multi30k
 from torchtext.data import Field, BucketIterator
 import spacy
@@ -21,6 +24,7 @@ from src.encoder_decoder import EncodeDecoder
 from src.one_step_decoder import OneStepDecoder
 
 
+BATCH_SIZE = 10
 EPOCHS = 1
 CLIP = 1
 
@@ -37,6 +41,7 @@ class Seq2Seq_Translator:
     def __init__(self) -> None:
         self.get_datasets()
         self.create_model()
+        self.writer = SummaryWriter()
         pass
         
     # define the tokenizer
@@ -46,7 +51,7 @@ class Seq2Seq_Translator:
     def tokenize_en(self, text):
         return [token.text for token in self.spacy_en.tokenizer(text)]
 
-    def get_datasets(self, batch_size=128):
+    def get_datasets(self):
         
         # Create the pytext's Field
         self.source = Field(tokenize=self.tokenize_de, init_token='<sos>', eos_token='<eos>', lower=True)
@@ -65,7 +70,7 @@ class Seq2Seq_Translator:
         # Create the Iterator using builtin Bucketing
         self.train_iterator, self.valid_iterator, self.test_iterator = BucketIterator.splits(
             (self.train_data, self.valid_data, self.test_data),
-            batch_size=batch_size,
+            batch_size=BATCH_SIZE,
             sort_within_batch=True,
             sort_key=lambda x: len(x.src),
             device=device
@@ -113,82 +118,145 @@ class Seq2Seq_Translator:
         }
         torch.save(checkpoint, 'checkpoints/nmt.model.gru-attention.pth.tar')
 
+    def show_train_metrics(self, epoch: int, train_loss: float, 
+        train_accuracy: float, valid_loss: float, valid_accuracy:float) -> None:
+        print(f' Epoch: {epoch:03}/{EPOCHS}')
+        print(
+            f' Train Loss: {train_loss:.3f} | Train Acc: {train_accuracy:.3f} | Train PPL: {math.exp(train_loss):7.3f}')
+        print(
+            f' Val. Loss: {valid_loss:.3f} | Val Acc: {valid_accuracy:.3f} | Val. PPL: {math.exp(valid_loss):7.3f}\n')
+    
+    def save_train_metrics(self, epoch: int, train_loss: float, 
+            train_accuracy: float, valid_loss: float, valid_accuracy:float) -> None:
+        """
+            Save the training metrics to be ploted in the tensorboard.
+        """
+        # All stand alone metrics
+        self.writer.add_scalar(
+            "Training Loss", train_loss, global_step=epoch)
+        self.writer.add_scalar(
+            "Training Accuracy", train_accuracy, global_step=epoch)
+        self.writer.add_scalar(
+            "Validation Loss", valid_loss, global_step=epoch)
+        self.writer.add_scalar(
+            "Validation Accuracy", valid_accuracy, global_step=epoch)
+        
+        # Mixing Train Metrics
+        self.writer.add_scalars(
+            "Training Metrics (Train Loss / Train Accurary)", {
+                "Train Loss": train_loss, "Train Accurary": train_accuracy},
+            global_step=epoch
+        )
+
+        # Mixing Validation Metrics
+        self.writer.add_scalars(
+            "Training Metrics (Validation Loss / Validation Accurary)", {
+                "Validation Loss": valid_loss, "Validation Accuracy": valid_accuracy},
+            global_step=epoch
+        )
+        
+        # Mixing Train and Validation Metrics
+        self.writer.add_scalars(
+            "Training Metrics (Train Loss / Validation Loss)", {
+                "Train Loss": train_loss, "Validation Loss": valid_loss},
+            global_step=epoch
+        )
+        self.writer.add_scalars(
+            "Training Metrics (Train Accurary / Validation Accuracy)", {
+                "Train Accurary": train_accuracy, "Validation Accuracy": valid_accuracy},
+            global_step=epoch
+        )
+        
+    def train(self, epoch, progress_bar):
+
+        target_count, correct_train = 0, 0
+        training_loss = []
+        training_accu = []
+        # set training mode
+        self.model.train()
+        # Loop through the training batch
+        
+        for i, batch in enumerate(self.train_iterator):
+            # Get the source and target tokens
+            src = batch.src
+            trg = batch.trg
+            self.optimizer.zero_grad()
+            # Forward pass
+            output = self.model(src, trg)
+            # reshape the output
+            output_dim = output.shape[-1]
+            # Discard the first token as this will always be 0
+            output = output[1:].view(-1, output_dim)
+            # Discard the sos token from target
+            trg = trg[1:].view(-1)
+
+            # Calculate the loss
+            loss = self.criterion(output, trg)
+            # back propagation
+            loss.backward()
+            # Gradient Clipping for stability
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), CLIP)
+            self.optimizer.step()
+            training_loss.append(loss.item())
+
+            # Calculate the Accuracy
+            _, predicted = torch.max(output.data, 1)
+            target_count += trg.size(0)
+            correct_train += (trg == predicted).sum().item()
+            training_accu.append((correct_train) / target_count)
+
+            progress_bar.set_postfix(
+                epoch=f" {epoch}, train loss= {round(sum(training_loss) / len(training_loss), 4)}, train accu: {sum(training_accu) / len(training_accu):.4f}", refresh=True)
+            progress_bar.update()
+        
+        return sum(training_loss) / len(training_loss), sum(training_accu) / len(training_accu)
+    
+    def evaluate(self, epoch, progress_bar):
+
+        target_count, correct_train, train_acc = 0, 0, 0
+
+        with torch.no_grad():
+
+            # Set the model to eval
+            self.model.eval()
+            validation_loss = []
+            # Loop through the validation batch
+
+            for i, batch in enumerate(self.valid_iterator):
+                src = batch.src
+                trg = batch.trg
+                # Forward pass
+                output = self.model(src, trg, 0)
+                output_dim = output.shape[-1]
+                output = output[1:].view(-1, output_dim)
+                trg = trg[1:].view(-1)
+                # Calculate Loss
+                loss = self.criterion(output, trg)
+                validation_loss.append(loss.item())
+                # Calculate Accuracy
+                _, predicted = torch.max(output.data, 1)
+                target_count += trg.size(0)
+                correct_train += (trg == predicted).sum().item()
+                train_acc += (correct_train) / target_count
+
+            progress_bar.set_postfix(
+                epoch=f" {epoch}, val loss= {round(sum(validation_loss) / len(validation_loss), 4)}, val accu: {train_acc / len(self.valid_iterator):.4f}",
+                refresh=False)
+            progress_bar.close()
+        
+        return sum(validation_loss) / len(validation_loss), train_acc / len(self.valid_iterator)
+
     def train_model(self):
 
         for epoch in range(1, EPOCHS + 1):
             progress_bar = tqdm(total=len(self.train_iterator), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', unit=' batches', ncols=200)
 
-            training_loss = []
-            # set training mode
-            self.model.train()
+            train_loss, train_accu = self.train(epoch, progress_bar)
+            val_loss, val_accu = self.evaluate(epoch, progress_bar)
 
-            # Loop through the training batch
-            for i, batch in enumerate(self.train_iterator):
-                # Get the source and target tokens
-                src = batch.src
-                trg = batch.trg
-
-                self.optimizer.zero_grad()
-
-                # Forward pass
-                output = self.model(src, trg)
-
-                # reshape the output
-                output_dim = output.shape[-1]
-
-                # Discard the first token as this will always be 0
-                output = output[1:].view(-1, output_dim)
-
-                # Discard the sos token from target
-                trg = trg[1:].view(-1)
-
-                # Calculate the loss
-                loss = self.criterion(output, trg)
-
-                # back propagation
-                loss.backward()
-
-                # Gradient Clipping for stability
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), CLIP)
-
-                self.optimizer.step()
-
-                training_loss.append(loss.item())
-
-                progress_bar.set_postfix(
-                    epoch=f" {epoch}, train loss= {round(sum(training_loss) / len(training_loss), 4)}", refresh=True)
-                progress_bar.update()
-
-            with torch.no_grad():
-                # Set the model to eval
-                self.model.eval()
-
-                validation_loss = []
-
-                # Loop through the validation batch
-                for i, batch in enumerate(self.valid_iterator):
-                    src = batch.src
-                    trg = batch.trg
-
-                    # Forward pass
-                    output = self.model(src, trg, 0)
-
-                    output_dim = output.shape[-1]
-
-                    output = output[1:].view(-1, output_dim)
-                    trg = trg[1:].view(-1)
-
-                    # Calculate Loss
-                    loss = self.criterion(output, trg)
-
-                    validation_loss.append(loss.item())
-
-            progress_bar.set_postfix(
-                epoch=f" {epoch}, train loss= {round(sum(training_loss) / len(training_loss), 4)}, val loss= {round(sum(validation_loss) / len(validation_loss), 4)}",
-                refresh=False)
-            progress_bar.close()
-
-        self.save_model()
+            self.show_train_metrics(epoch, train_loss, train_accu, val_loss, val_accu)
+            self.save_train_metrics(epoch, train_loss, train_accu, val_loss, val_accu)
+            self.save_model()
     
     def display_attention(self, sentence, translation, attention):
         fig = plt.figure(figsize=(10, 10))
@@ -266,5 +334,5 @@ class Seq2Seq_Translator:
 
 if __name__ == '__main__':
     model = Seq2Seq_Translator()
-    # model.train_model()
+    model.train_model()
     # model.translate()
