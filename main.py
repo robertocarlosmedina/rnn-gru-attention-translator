@@ -1,219 +1,171 @@
-from __future__ import unicode_literals, print_function, division
-from io import open
-import unicodedata
-import string
-import re
-import random
-
 import torch
 import torch.nn as nn
-from torch import optim
+import torch.optim as optim
+from torchtext.datasets import Multi30k
+from torchtext.data import Field, BucketIterator
+import spacy
+import numpy as np
+import random
+from tqdm import tqdm
 import torch.nn.functional as F
+from termcolor import colored
+from torch.utils.tensorboard import SummaryWriter
+from torchtext.data.metrics import bleu_score
 
-from language import Lang
-from decoder_rnn import DecoderRNN
-from attention_decoder_rnn import Attention_DecoderRNN
-from encoder_rnn import EncoderRNN
-from utils import prepare_data, show_plot, show_attention,time_since
-import time
-import math
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from basic import EncodeDecoder, Encoder, Decoder, OneStepDecoder, Attention
 
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-SOS_token = 0
-EOS_token = 1
-UNK_token = 2
-teacher_forcing_ratio = 0.5
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-MAX_LENGTH = 10
+def get_test_datasets():
+    # Download the language files
+    spacy_de = spacy.load('pt_core_news_sm')
+    spacy_en = spacy.load('en_core_web_sm')
+
+    # define the tokenizer
+    def tokenize_de(text):
+        return [token.text for token in spacy_de.tokenizer(text)]
+
+    def tokenize_en(text):
+        return [token.text for token in spacy_en.tokenizer(text)]
+
+    # Create the pytext's Field
+    source = Field(tokenize=tokenize_de, init_token='<sos>', eos_token='<eos>', lower=True)
+    target = Field(tokenize=tokenize_en, init_token='<sos>', eos_token='<eos>', lower=True)
+
+    # Splits the data in Train, Test and Validation data
+    _, _, test_data = Multi30k.splits(
+        exts=(".cv", ".en"), fields=(source, target),
+        test="test", path=".data/criolSet"
+    )
+
+    return test_data
 
 
-input_lang, output_lang, train_data, test_data, val_dat = prepare_data('cv', 'en', MAX_LENGTH)
-print(random.choice(train_data))
+def create_model_for_inference(source_vocab, target_vocab):
+    # Define the required dimensions and hyper parameters
+    embedding_dim = 256
+    hidden_dim = 1024
+    dropout = 0.5
+
+    # Instantiate the models
+    attention_model = Attention(hidden_dim, hidden_dim)
+    encoder = Encoder(len(source_vocab), embedding_dim, hidden_dim)
+    one_step_decoder = OneStepDecoder(len(target_vocab), embedding_dim, hidden_dim, hidden_dim, attention_model)
+    decoder = Decoder(one_step_decoder, device)
+
+    model = EncodeDecoder(encoder, decoder)
+
+    model = model.to(device)
+
+    return model
+
+def load_models_and_test_data(file_name):
+    test_data = get_test_datasets()
+    checkpoint = torch.load(file_name)
+    
+    source_vocab = checkpoint['source']
+    target_vocab = checkpoint['target']
+    model = create_model_for_inference(source_vocab, target_vocab)
+    model.load_state_dict(checkpoint['model_state_dict'])
+
+    return model, source_vocab, target_vocab, test_data
 
 
-def indexes_from_sentence(lang, sentence):
-    predicted_sentece = []
-    predicted_word = ""
-    for word in sentence.split(' '):
-        try:
-            predicted_word = lang.word2index[word]
-            predicted_sentece.append(predicted_word)
-        except:
-            predicted_sentece.append(UNK_token)
-    return predicted_sentece
+def predict(id, model, source_vocab, target_vocab, test_data, display_attn=False, debug=False):
+    src = vars(test_data.examples[id])['src']
+    trg = vars(test_data.examples[id])['trg']
 
+    # Convert each source token to integer values using the vocabulary
+    tokens = ['<sos>'] + [token.lower() for token in src] + ['<eos>']
+    src_indexes = [source_vocab.stoi[token] for token in tokens]
+    src_tensor = torch.LongTensor(src_indexes).unsqueeze(1).to(device)
 
-def tensor_from_dentence(lang, sentence):
-    indexes = indexes_from_sentence(lang, sentence)
-    indexes.append(EOS_token)
-    return torch.tensor(indexes, dtype=torch.long, device=device).view(-1, 1)
+    model.eval()
 
+    # Run the forward pass of the encoder
+    encoder_outputs, hidden = model.encoder(src_tensor)
 
-def tensors_from_pair(pair):
-    input_tensor = tensor_from_dentence(input_lang, pair[0])
-    target_tensor = tensor_from_dentence(output_lang, pair[1])
-    return (input_tensor, target_tensor)
+    # Take the integer value of <sos> from the target vocabulary.
+    trg_index = [target_vocab.stoi['<sos>']]
+    next_token = torch.LongTensor(trg_index).to(device)
 
+    attentions = torch.zeros(30, 1, len(src_indexes)).to(device)
 
-def train(input_tensor, target_tensor, encoder, decoder, encoder_optimizer,
-             decoder_optimizer, criterion, max_length=MAX_LENGTH):
-    encoder_hidden = encoder.initHidden()
+    trg_indexes = [trg_index[0]]
 
-    encoder_optimizer.zero_grad()
-    decoder_optimizer.zero_grad()
-
-    input_length = input_tensor.size(0)
-    target_length = target_tensor.size(0)
-
-    encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
-
-    loss = 0
-
-    for ei in range(input_length):
-        encoder_output, encoder_hidden = encoder(
-            input_tensor[ei], encoder_hidden)
-        encoder_outputs[ei] = encoder_output[0, 0]
-
-    decoder_input = torch.tensor([[SOS_token]], device=device)
-
-    decoder_hidden = encoder_hidden
-
-    use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
-
-    if use_teacher_forcing:
-        # Teacher forcing: Feed the target as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
-            loss += criterion(decoder_output, target_tensor[di])
-            decoder_input = target_tensor[di]  # Teacher forcing
-
-    else:
-        # Without teacher forcing: use its own predictions as the next input
-        for di in range(target_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
-            topv, topi = decoder_output.topk(1)
-            decoder_input = topi.squeeze().detach()  # detach from history as input
-
-            loss += criterion(decoder_output, target_tensor[di])
-            if decoder_input.item() == EOS_token:
-                break
-
-    loss.backward()
-
-    encoder_optimizer.step()
-    decoder_optimizer.step()
-
-    return loss.item() / target_length
-
-
-def train_model(encoder, decoder, n_iters, print_every=1000, plot_every=100, learning_rate=0.01):
-    start = time.time()
-    plot_losses = []
-    print_loss_total = 0  # Reset every print_every
-    plot_loss_total = 0  # Reset every plot_every
-
-    encoder_optimizer = optim.SGD(encoder.parameters(), lr=learning_rate)
-    decoder_optimizer = optim.SGD(decoder.parameters(), lr=learning_rate)
-    training_data = [tensors_from_pair(random.choice(train_data))
-                      for i in range(n_iters)]
-    criterion = nn.NLLLoss()
-
-    for iter in range(1, n_iters + 1):
-        print(f"Iteration: {iter}/{n_iters}")
-        training_pair = training_data[iter - 1]
-        input_tensor = training_pair[0]
-        target_tensor = training_pair[1]
-
-        loss = train(input_tensor, target_tensor, encoder,
-                     decoder, encoder_optimizer, decoder_optimizer, criterion)
-        print_loss_total += loss
-        plot_loss_total += loss
-
-        if iter % print_every == 0:
-            print_loss_avg = print_loss_total / print_every
-            print_loss_total = 0
-            print('%s (%d %d%%) %.4f' % (time_since(start, iter / n_iters),
-                                         iter, iter / n_iters * 100, print_loss_avg))
-
-        if iter % plot_every == 0:
-            plot_loss_avg = plot_loss_total / plot_every
-            plot_losses.append(plot_loss_avg)
-            plot_loss_total = 0
-
-    show_plot(plot_losses)
-
-
-def translate_sentence(encoder, decoder, sentence, max_length=MAX_LENGTH):
+    outputs = []
     with torch.no_grad():
-        input_tensor = tensor_from_dentence(input_lang, sentence)
-        input_length = input_tensor.size()[0]
-        encoder_hidden = encoder.initHidden()
+        # Use the hidden and cell vector of the Encoder and in loop
+        # run the forward pass of the OneStepDecoder until some specified
+        # step (say 50) or when <eos> has been generated by the model.
+        for i in range(30):
+            output, hidden, a = model.decoder.one_step_decoder(next_token, hidden, encoder_outputs)
 
-        encoder_outputs = torch.zeros(max_length, encoder.hidden_size, device=device)
+            attentions[i] = a
 
-        for ei in range(input_length):
-            encoder_output, encoder_hidden = encoder(input_tensor[ei],
-                                                     encoder_hidden)
-            encoder_outputs[ei] += encoder_output[0, 0]
+            # Take the most probable word
+            next_token = output.argmax(1)
 
-        decoder_input = torch.tensor([[SOS_token]], device=device)  # SOS
+            trg_indexes.append(next_token.item())
 
-        decoder_hidden = encoder_hidden
-
-        decoded_words = []
-        decoder_attentions = torch.zeros(max_length, max_length)
-
-        for di in range(max_length):
-            decoder_output, decoder_hidden, decoder_attention = decoder(
-                decoder_input, decoder_hidden, encoder_outputs)
-            decoder_attentions[di] = decoder_attention.data
-            topv, topi = decoder_output.data.topk(1)
-            if topi.item() == EOS_token:
-                decoded_words.append('<EOS>')
+            predicted = target_vocab.itos[output.argmax(1).item()]
+            if predicted == '<eos>':
                 break
             else:
-                decoded_words.append(output_lang.index2word[topi.item()])
+                outputs.append(predicted)
+    if debug:
+        print(colored(f'Ground Truth    = {" ".join(trg)}', 'green'))
+        print(colored(f'Predicted Label = {" ".join(outputs)}', 'red'))
 
-            decoder_input = topi.squeeze().detach()
+    predicted_words = [target_vocab.itos[i] for i in trg_indexes]
 
-        return decoded_words, decoder_attentions[:di + 1]
+    if display_attn:
+        display_attention(src, predicted_words[1:-1], attentions[:len(predicted_words) - 1])
 
-
-def evaluateRandomly(encoder, decoder, n=10):
-    for i in range(n):
-        pair = random.choice(train_data)
-        print('>', pair[0])
-        print('=', pair[1])
-        output_words, attentions = translate_sentence(encoder, decoder, pair[0])
-        output_sentence = ' '.join(output_words)
-        print('<', output_sentence)
-        print('')
+    return predicted_words
 
 
-hidden_size = 256
-encoder1 = EncoderRNN(input_lang.n_words, hidden_size, device).to(device)
-attn_decoder1 = Attention_DecoderRNN(hidden_size, output_lang.n_words, device, MAX_LENGTH, dropout_p=0.1).to(device)
-train_model(encoder1, attn_decoder1, 100, print_every=5000)
+def display_attention(sentence, translation, attention):
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(111)
 
-evaluateRandomly(encoder1, attn_decoder1)
+    attention = attention.squeeze(1).cpu().detach().numpy()[:-1, 1:-1]
+
+    cax = ax.matshow(attention, cmap='bone')
+
+    ax.tick_params(labelsize=15)
+    ax.set_xticklabels([''] + [t.lower() for t in sentence] + [''],
+                       rotation=45)
+    ax.set_yticklabels([''] + translation + [''])
+
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+
+    plt.show()
+    plt.close()
 
 
-def evaluateAndShowAttention(input_sentence):
-    output_words, attentions = translate_sentence(
-        encoder1, attn_decoder1, input_sentence)
-    print('input =', input_sentence)
-    print('output =', ' '.join(output_words))
-    show_attention(input_sentence, output_words, attentions)
+def cal_bleu_score(dataset, model, source_vocab, target_vocab):
+    targets = []
+    predictions = []
+
+    for i in range(len(dataset)):
+        target = vars(test_data.examples[i])['trg']
+        predicted_words = predict(i, model, source_vocab, target_vocab, dataset)
+        predictions.append(predicted_words[1:-1])
+        targets.append([target])
+
+    print(f'BLEU Score: {round(bleu_score(predictions, targets) * 100, 2)}')
 
 
-evaluateAndShowAttention("Calma ja no te txegá lá .")
+if __name__ == '__main__':
+    checkpoint_file = 'checkpoints/nmt-model-gru-attention-25.pth'
+    model, source_vocab, target_vocab, test_data = load_models_and_test_data(checkpoint_file)
+    predict(20, model, source_vocab, target_vocab, test_data, display_attn=True, debug=True)
+    predict(14, model, source_vocab, target_vocab, test_data, display_attn=True, debug=True)
+    predict(1, model, source_vocab, target_vocab, test_data, display_attn=True, debug=True)
 
-evaluateAndShowAttention("Um des dia no te bei te lá")
-
-evaluateAndShowAttention("Kondê ke bô te bem ?")
-
-evaluateAndShowAttention("Tava te pensa era nes dia .")
+    cal_bleu_score(test_data, model, source_vocab, target_vocab)
