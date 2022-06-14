@@ -83,6 +83,8 @@ class Seq2Seq_Translator:
             device=device
         )
 
+        print(colored("=> Data has been collected and processed", 'cyan'))
+
     def get_test_data(self) -> list:
         return [(test.src, test.trg) for test in self.test_data.examples[0:20]]
 
@@ -112,7 +114,7 @@ class Seq2Seq_Translator:
         self.load_models()
     
     def load_models(self):
-        print("=> Loading checkpoint")
+        print(colored("=> Loading checkpoint", "cyan"))
         try:
             checkpoint = torch.load('checkpoints/nmt.model.gru-attention.pth.tar')
             self.optimizer.load_state_dict(checkpoint['optimizer'])
@@ -350,7 +352,7 @@ class Seq2Seq_Translator:
         print("-------------------------------------------------------------\n")
         sentence = str(input("  Sentence (cv): "))
         predicted_words = self.translate(sentence, True)
-        print(f'  Target (en): {self.untokenize_sentence(predicted_words)}')
+        print(colored(f'  Prediction (en): {self.untokenize_sentence(predicted_words)}', 'blue'))
 
     def untokenize_sentence(self, translated_sentence_list) -> str:
         """
@@ -372,7 +374,7 @@ class Seq2Seq_Translator:
         for data_tuple in test_data:
             src, trg = " ".join(
                 data_tuple[0]), self.untokenize_sentence(data_tuple[1])
-            translation = self.translate_sentence(trg)
+            translation = self.translate(src)
             print(f'  Source (cv): {src}')
             print(f'  Target (en): {trg}')
             print(
@@ -386,13 +388,12 @@ class Seq2Seq_Translator:
             Sentence = str(input(f'  Sentence (cv): '))
             translation = self.translate_sentence(Sentence)
 
-            print(
-                f'  Predicted (en): {translation}\n')
+            print(colored(f'  Predicted (en): {translation}\n', 'blue'))
     
     def count_hyperparameters(self) -> None:
         total_parameters =  sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         print(
-            f'\nThe model has {total_parameters:,} trainable parameters')
+            colored(f'\n==> The model has {total_parameters:,} trainable parameters\n', 'blue'))
 
     def calculate_blue_score(self):
         """
@@ -409,21 +410,24 @@ class Seq2Seq_Translator:
             predictions = []
 
             for _ in range(3):
-                prediction = self.translate(trg)
+                prediction = self.remove_special_notation(self.translate(src))
                 predictions.append(prediction)
 
             print(f'  Source (cv): {" ".join(src)}')
-            print(f'  Target (en): {trg}')
+            print(f'  Target (en): {" ".join(trg)}')
             print(f'  Predictions (en):')
-            [print(f'      - {prediction}') for prediction in predictions]
+            [print(f'      - {" ".join(prediction)}') for prediction in predictions]
             print("\n")
 
             targets.append(trg)
             outputs.append(predictions)
 
         score = bleu_score(targets, outputs)
-        print(f"Bleu score: {score * 100:.2f}")
+        print(colored(f"==> Bleu score: {score * 100:.2f}\n", 'blue'))
     
+    def remove_special_notation(self, sentence: list):
+        return [token for token in sentence if token not in ["<unk>", "<eos>", "<sos>"]]
+
     def calculate_meteor_score(self):
         """
             METEOR (Metric for Evaluation of Translation with Explicit ORdering) is 
@@ -439,20 +443,21 @@ class Seq2Seq_Translator:
             predictions = []
 
             for _ in range(4):
-                prediction = self.translate_sentence(trg)
-                predictions.append(self.untokenize_sentence(prediction))
+                prediction = self.remove_special_notation(self.translate(src))
+                predictions.append(" ".join(prediction))
 
             all_meteor_scores.append(meteor_score(
-                predictions, self.untokenize_sentence(trg)
+                predictions, " ".join(trg)
             ))
+            
             print(f'  Source (cv): {" ".join(src)}')
-            print(f'  Target (en): {self.untokenize_sentence(trg)}')
+            print(f'  Target (en): {" ".join(trg)}')
             print(f'  Predictions (en): ')
             [print(f'      - {prediction}') for prediction in predictions]
             print("\n")
 
         score = sum(all_meteor_scores)/len(all_meteor_scores)
-        print(f"Meteor score: {score * 100:.2f}")
+        print(colored(f"==> Meteor score: {score * 100:.2f}\n", 'blue'))
 
     def calculate_ter(self):
         """
@@ -460,17 +465,18 @@ class Seq2Seq_Translator:
             measuring the number of edit operations needed to transform the 
             machine-translated output into a human translated reference.
         """
-        all_translation_ter = 0
+        all_translation_ter = []
 
         for example in self.test_data:
             src = vars(example)["src"]
             trg = vars(example)["trg"]
 
-            prediction = self.translate_sentence(trg)
+            prediction = self.remove_special_notation(self.translate(src))
 
             print(f'  Source (cv): {" ".join(src)}')
             print(f'  Target (en): {" ".join(trg)}')
-            print(f'  Predictions (en): {" ".join(prediction)}\n')
+            print(f'  Prediction (en): {" ".join(prediction)}\n')
 
-            all_translation_ter += ter(prediction, trg)
-        print(f"TER score: {all_translation_ter/len(self.test_data) * 100:.2f}")
+
+            all_translation_ter.append(ter(prediction, trg))
+        print(colored(f"==> TER score: {sum(all_translation_ter)/len(all_translation_ter) * 100:.2f}\n", 'blue'))
