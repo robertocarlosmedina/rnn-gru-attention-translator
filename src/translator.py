@@ -123,7 +123,7 @@ class Seq2Seq_Translator:
             print(colored("=> No checkpoint to Load", "red"))
     
     def save_model(self):
-        print("=> Saving checkpoint")
+        print(colored("=> Saving checkpoint", 'cyan'))
         checkpoint = {
             'state_dict': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict()
