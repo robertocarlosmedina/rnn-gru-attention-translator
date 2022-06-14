@@ -3,6 +3,7 @@ import math
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
+from pyter import ter
 from termcolor import colored
 
 import torch
@@ -11,6 +12,9 @@ import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 from torchtext.datasets import Multi30k
 from torchtext.data import Field, BucketIterator
+from nltk.tokenize.treebank import TreebankWordDetokenizer
+from nltk.translate.meteor_score import meteor_score
+from torchtext.data.metrics import bleu_score
 import spacy
 import numpy as np
 import random
@@ -330,6 +334,21 @@ class Seq2Seq_Translator:
 
         return predicted_words
 
+    def translate_sentence(self, sentence: str) -> str:
+        predicted_words = self.translate(sentence)
+        return self.untokenize_sentence(predicted_words)
+
+    def untokenize_sentence(self, translated_sentence_list) -> str:
+        """
+            Method to untokenuze the pedicted translation.
+            Returning it on as an str.
+        """
+        translated_sentence_str = []
+        for word in translated_sentence_list:
+            if(word != "<eos>" and word != "<unk>"):
+                translated_sentence_str.append(word)
+        translated_sentence = TreebankWordDetokenizer().detokenize(translated_sentence_str)
+        return self.grammar.check_sentence(translated_sentence)
 
 
 if __name__ == '__main__':
