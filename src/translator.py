@@ -1,5 +1,7 @@
 import math
 
+import os
+
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
@@ -26,6 +28,7 @@ from src.decoder import Decoder
 from src.encoder import Encoder
 from src.encoder_decoder import EncodeDecoder
 from src.one_step_decoder import OneStepDecoder
+from src.grammar_checker import Grammar_checker
 
 
 BATCH_SIZE = 10
@@ -46,7 +49,7 @@ class Seq2Seq_Translator:
         self.get_datasets()
         self.create_model()
         self.writer = SummaryWriter()
-        pass
+        self.grammar = Grammar_checker()
         
     # define the tokenizer
     def tokenize_de(self, text):
@@ -79,6 +82,9 @@ class Seq2Seq_Translator:
             sort_key=lambda x: len(x.src),
             device=device
         )
+
+    def get_test_data(self) -> list:
+        return [(test.src, test.trg) for test in self.test_data.examples[0:20]]
 
     def create_model(self):
         # Define the required dimensions and hyper parameters
@@ -281,12 +287,10 @@ class Seq2Seq_Translator:
         plt.show()
         plt.close()
     
-    def translate(self, display_attention=False):
-        src = vars(self.test_data.examples[12])['src']
-        trg = vars(self.test_data.examples[12])['trg']
+    def translate(self, sentence,  display_attention=False):
 
         # Convert each source token to integer values using the vocabulary
-        tokens = ['<sos>'] + [token.lower() for token in src] + ['<eos>']
+        tokens = ['<sos>'] + [token.lower() for token in sentence.split()] + ['<eos>']
         src_indexes = [self.source.vocab.stoi[token] for token in tokens]
         src_tensor = torch.LongTensor(src_indexes).unsqueeze(1).to(device)
 
@@ -323,20 +327,26 @@ class Seq2Seq_Translator:
                     break
                 else:
                     outputs.append(predicted)
-                    
-        print(colored(f'Ground Truth    = {" ".join(trg)}', 'green'))
-        print(colored(f'Predicted Label = {" ".join(outputs)}', 'red'))
 
         predicted_words = [self.target.vocab.itos[i] for i in trg_indexes]
 
         if display_attention:
-            self.display_attention(src, predicted_words[1:-1], attentions[:len(predicted_words) - 1])
+            print(tokens)
+            self.display_attention(tokens[1:], predicted_words[1:-1], attentions[:len(predicted_words) - 1])
 
-        return predicted_words
+        return predicted_words[1:]
 
     def translate_sentence(self, sentence: str) -> str:
         predicted_words = self.translate(sentence)
         return self.untokenize_sentence(predicted_words)
+    
+    def generate_confusion_matrix(self) -> None:
+        os.system("clear")
+        print("\n                  CV Creole Translator Test ")
+        print("-------------------------------------------------------------\n")
+        sentence = str(input("  Sentence (cv): "))
+        predicted_words = self.translate(sentence, True)
+        print(f'  Target (en): {self.untokenize_sentence(predicted_words)}')
 
     def untokenize_sentence(self, translated_sentence_list) -> str:
         """
@@ -350,8 +360,113 @@ class Seq2Seq_Translator:
         translated_sentence = TreebankWordDetokenizer().detokenize(translated_sentence_str)
         return self.grammar.check_sentence(translated_sentence)
 
+    def test_model(self) -> None:
+        test_data = self.get_test_data()
+        os.system("clear")
+        print("\n                  CV Creole Translator Test ")
+        print("-------------------------------------------------------------\n")
+        for data_tuple in test_data:
+            src, trg = " ".join(
+                data_tuple[0]), self.untokenize_sentence(data_tuple[1])
+            translation = self.translate_sentence(trg)
+            print(f'  Source (cv): {src}')
+            print(f'  Target (en): {trg}')
+            print(
+                f'  Predicted (en): {self.untokenize_sentence(translation)}\n')
 
-if __name__ == '__main__':
-    model = Seq2Seq_Translator()
-    model.train_model()
-    # model.translate()
+    def console_model_test(self) -> None:
+        os.system("clear")
+        print("\n                     CV Creole Translator ")
+        print("-------------------------------------------------------------\n")
+        while True:
+            Sentence = str(input(f'  Sentence (cv): '))
+            translation = self.translate_sentence(Sentence)
+
+            print(
+                f'  Predicted (en): {translation}\n')
+    
+    def count_hyperparameters(self) -> None:
+        total_parameters =  sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(
+            f'\nThe model has {total_parameters:,} trainable parameters')
+
+    def calculate_blue_score(self):
+        """
+            BLEU (bilingual evaluation understudy) is an algorithm for evaluating 
+            the quality of text which has been machine-translated from one natural 
+            language to another.
+        """
+        targets = []
+        outputs = []
+
+        for example in self.test_data:
+            src = vars(example)["src"]
+            trg = vars(example)["trg"]
+            predictions = []
+
+            for _ in range(3):
+                prediction = self.translate(trg)
+                predictions.append(prediction)
+
+            print(f'  Source (cv): {" ".join(src)}')
+            print(f'  Target (en): {trg}')
+            print(f'  Predictions (en):')
+            [print(f'      - {prediction}') for prediction in predictions]
+            print("\n")
+
+            targets.append(trg)
+            outputs.append(predictions)
+
+        score = bleu_score(targets, outputs)
+        print(f"Bleu score: {score * 100:.2f}")
+    
+    def calculate_meteor_score(self):
+        """
+            METEOR (Metric for Evaluation of Translation with Explicit ORdering) is 
+            a metric for the evaluation of machine translation output. The metric is 
+            based on the harmonic mean of unigram precision and recall, with recall 
+            weighted higher than precision.
+        """
+        all_meteor_scores = []
+
+        for example in self.test_data:
+            src = vars(example)["src"]
+            trg = vars(example)["trg"]
+            predictions = []
+
+            for _ in range(4):
+                prediction = self.translate_sentence(trg)
+                predictions.append(self.untokenize_sentence(prediction))
+
+            all_meteor_scores.append(meteor_score(
+                predictions, self.untokenize_sentence(trg)
+            ))
+            print(f'  Source (cv): {" ".join(src)}')
+            print(f'  Target (en): {self.untokenize_sentence(trg)}')
+            print(f'  Predictions (en): ')
+            [print(f'      - {prediction}') for prediction in predictions]
+            print("\n")
+
+        score = sum(all_meteor_scores)/len(all_meteor_scores)
+        print(f"Meteor score: {score * 100:.2f}")
+
+    def calculate_ter(self):
+        """
+            TER. Translation Error Rate (TER) is a character-based automatic metric for 
+            measuring the number of edit operations needed to transform the 
+            machine-translated output into a human translated reference.
+        """
+        all_translation_ter = 0
+
+        for example in self.test_data:
+            src = vars(example)["src"]
+            trg = vars(example)["trg"]
+
+            prediction = self.translate_sentence(trg)
+
+            print(f'  Source (cv): {" ".join(src)}')
+            print(f'  Target (en): {" ".join(trg)}')
+            print(f'  Predictions (en): {" ".join(prediction)}\n')
+
+            all_translation_ter += ter(prediction, trg)
+        print(f"TER score: {all_translation_ter/len(self.test_data) * 100:.2f}")
