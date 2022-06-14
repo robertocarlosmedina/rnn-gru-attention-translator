@@ -31,8 +31,8 @@ from src.one_step_decoder import OneStepDecoder
 from src.grammar_checker import Grammar_checker
 
 
-BATCH_SIZE = 10
-EPOCHS = 1
+BATCH_SIZE = 12
+EPOCHS = 10
 CLIP = 1
 
 
@@ -290,7 +290,11 @@ class Seq2Seq_Translator:
     def translate(self, sentence,  display_attention=False):
 
         # Convert each source token to integer values using the vocabulary
-        tokens = ['<sos>'] + [token.lower() for token in sentence.split()] + ['<eos>']
+        if sentence is str:
+            tokens = ['<sos>'] + [token.lower() for token in sentence.split()] + ['<eos>']
+        else:
+            tokens = ['<sos>'] + [token.lower() for token in sentence] + ['<eos>']
+
         src_indexes = [self.source.vocab.stoi[token] for token in tokens]
         src_tensor = torch.LongTensor(src_indexes).unsqueeze(1).to(device)
 
