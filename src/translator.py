@@ -1,6 +1,7 @@
 import math
 
 import os
+from attr import attr
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -352,7 +353,9 @@ class Seq2Seq_Translator:
         print("-------------------------------------------------------------\n")
         sentence = str(input("  Sentence (cv): "))
         predicted_words = self.translate(sentence, True)
-        print(colored(f'  Prediction (en): {self.untokenize_sentence(predicted_words)}', 'blue'))
+        print(
+            colored(f'  Prediction (en): {self.untokenize_sentence(predicted_words)}', 'blue', attr=['bold'])
+        )
 
     def untokenize_sentence(self, translated_sentence_list) -> str:
         """
@@ -376,9 +379,10 @@ class Seq2Seq_Translator:
                 data_tuple[0]), self.untokenize_sentence(data_tuple[1])
             translation = self.translate(src)
             print(f'  Source (cv): {src}')
-            print(f'  Target (en): {trg}')
+            print(colored(f'  Target (en): {trg}', attrs=['bold']))
             print(
-                f'  Predicted (en): {self.untokenize_sentence(translation)}\n')
+                colored(f'  Predicted (en): {self.untokenize_sentence(translation)}\n', 'blue', attrs=['bold'])
+            )
 
     def console_model_test(self) -> None:
         os.system("clear")
@@ -388,12 +392,14 @@ class Seq2Seq_Translator:
             Sentence = str(input(f'  Sentence (cv): '))
             translation = self.translate_sentence(Sentence)
 
-            print(colored(f'  Predicted (en): {translation}\n', 'blue'))
+            print(colored(f'  Predicted (en): {translation}\n', 'blue', attrs=['bold']))
     
     def count_hyperparameters(self) -> None:
         total_parameters =  sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print(
-            colored(f'\n==> The model has {total_parameters:,} trainable parameters\n', 'blue'))
+        print(colored(f'\n==> The model has {total_parameters:,} trainable parameters\n', 'blue'))
+
+    def remove_special_notation(self, sentence: list):
+        return [token for token in sentence if token not in ["<unk>", "<eos>", "<sos>"]]
 
     def calculate_blue_score(self):
         """
@@ -414,9 +420,10 @@ class Seq2Seq_Translator:
                 predictions.append(prediction)
 
             print(f'  Source (cv): {" ".join(src)}')
-            print(f'  Target (en): {" ".join(trg)}')
-            print(f'  Predictions (en):')
-            [print(f'      - {" ".join(prediction)}') for prediction in predictions]
+            print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
+            print(colored(f'  Predictions (en):', 'blue', attrs=['bold']))
+            [print(colored(f'      - {" ".join(prediction)}', 'blue', attrs=['bold'])) 
+                for prediction in predictions]
             print("\n")
 
             targets.append(trg)
@@ -425,9 +432,6 @@ class Seq2Seq_Translator:
         score = bleu_score(targets, outputs)
         print(colored(f"==> Bleu score: {score * 100:.2f}\n", 'blue'))
     
-    def remove_special_notation(self, sentence: list):
-        return [token for token in sentence if token not in ["<unk>", "<eos>", "<sos>"]]
-
     def calculate_meteor_score(self):
         """
             METEOR (Metric for Evaluation of Translation with Explicit ORdering) is 
@@ -451,9 +455,9 @@ class Seq2Seq_Translator:
             ))
             
             print(f'  Source (cv): {" ".join(src)}')
-            print(f'  Target (en): {" ".join(trg)}')
-            print(f'  Predictions (en): ')
-            [print(f'      - {prediction}') for prediction in predictions]
+            print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
+            print(colored(f'  Predictions (en):', 'blue', attrs=['bold']))
+            [print(colored(f'      - {prediction}', 'blue', attrs=['bold'])) for prediction in predictions]
             print("\n")
 
         score = sum(all_meteor_scores)/len(all_meteor_scores)
@@ -474,8 +478,8 @@ class Seq2Seq_Translator:
             prediction = self.remove_special_notation(self.translate(src))
 
             print(f'  Source (cv): {" ".join(src)}')
-            print(f'  Target (en): {" ".join(trg)}')
-            print(f'  Prediction (en): {" ".join(prediction)}\n')
+            print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
+            print(colored(f'  Prediction (en): {" ".join(prediction)}\n', 'blue', attrs=['bold']))
 
 
             all_translation_ter.append(ter(prediction, trg))
