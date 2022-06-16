@@ -376,7 +376,7 @@ class Seq2Seq_Translator:
         print("-------------------------------------------------------------\n")
         for data_tuple in test_data:
             src, trg = " ".join(
-                data_tuple[0]), self.untokenize_sentence(data_tuple[1])
+                data_tuple[0]), " ".join(data_tuple[1])
             translation = self.translate(src)
             print(f'  Source (cv): {src}')
             print(colored(f'  Target (en): {trg}', attrs=['bold']))
