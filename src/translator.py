@@ -1,7 +1,6 @@
 import math
 
 import os
-from attr import attr
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -32,7 +31,7 @@ from src.one_step_decoder import OneStepDecoder
 from src.grammar_checker import Grammar_checker
 
 
-BATCH_SIZE = 12
+BATCH_SIZE = 18
 EPOCHS = 10
 CLIP = 1
 
@@ -43,31 +42,37 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 class Seq2Seq_Translator:
 
     # Download the language files
-    spacy_de = spacy.load('pt_core_news_sm')
-    spacy_en = spacy.load('en_core_web_sm')
+    spacy_models = {
+        "en": spacy.load("en_core_web_sm"),
+        "pt": spacy.load("pt_core_news_sm"),
+        "cv": spacy.load("pt_core_news_sm"),
+    }
 
-    def __init__(self) -> None:
+    def __init__(self, source_languague: str, target_languague: str) -> None:
+        self.source_languague = source_languague
+        self.target_languague = target_languague
         self.get_datasets()
         self.create_model()
         self.writer = SummaryWriter()
         self.grammar = Grammar_checker()
         
     # define the tokenizer
-    def tokenize_de(self, text):
-        return [token.text for token in self.spacy_de.tokenizer(text)]
+    def tokenize_src(self, text):
+        return [token.text for token in self.spacy_models[self.source_languague].tokenizer(text)]
 
-    def tokenize_en(self, text):
-        return [token.text for token in self.spacy_en.tokenizer(text)]
+    def tokenize_trg(self, text):
+        return [token.text for token in self.spacy_models[self.target_languague].tokenizer(text)]
 
     def get_datasets(self):
         
         # Create the pytext's Field
-        self.source = Field(tokenize=self.tokenize_de, init_token='<sos>', eos_token='<eos>', lower=True)
-        self.target = Field(tokenize=self.tokenize_en, init_token='<sos>', eos_token='<eos>', lower=True)
+        self.source = Field(tokenize=self.tokenize_src, init_token='<sos>', eos_token='<eos>', lower=True)
+        self.target = Field(tokenize=self.tokenize_trg, init_token='<sos>', eos_token='<eos>', lower=True)
 
         # Splits the data in Train, Test and Validation data
         self.train_data, self.valid_data, self.test_data = Multi30k.splits(
-            exts=(".cv", ".en"), fields=(self.source, self.target),
+            exts=(f".{self.source_languague}", f".{self.target_languague}"), 
+            fields=(self.source, self.target),
             test="test", path=".data/criolSet"
         )
 
@@ -117,7 +122,8 @@ class Seq2Seq_Translator:
     def load_models(self):
         print(colored("=> Loading checkpoint", "cyan"))
         try:
-            checkpoint = torch.load('checkpoints/nmt.model.gru-attention.pth.tar')
+            checkpoint = torch.load(
+                f"checkpoints/gru-{self.source_languague}-{self.target_languague}.pth.tar")
             self.optimizer.load_state_dict(checkpoint['optimizer'])
             self.model.load_state_dict(checkpoint['state_dict'])
         except:
@@ -129,7 +135,9 @@ class Seq2Seq_Translator:
             'state_dict': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict()
         }
-        torch.save(checkpoint, 'checkpoints/nmt.model.gru-attention.pth.tar')
+        torch.save(
+            checkpoint, 
+            f"checkpoints/gru-{self.source_languague}-{self.target_languague}.pth.tar")
 
     def show_train_metrics(self, epoch: int, train_loss: float, 
         train_accuracy: float, valid_loss: float, valid_accuracy:float) -> None:
@@ -262,7 +270,10 @@ class Seq2Seq_Translator:
     def train_model(self):
 
         for epoch in range(1, EPOCHS + 1):
-            progress_bar = tqdm(total=len(self.train_iterator), bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', unit=' batches', ncols=200)
+            progress_bar = tqdm(
+                total=len(self.train_iterator)+len(self.valid_iterator), 
+                bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}', unit=' batches', ncols=200
+            )
 
             train_loss, train_accu = self.train(epoch, progress_bar)
             val_loss, val_accu = self.evaluate(epoch, progress_bar)
@@ -357,17 +368,17 @@ class Seq2Seq_Translator:
             colored(f'  Prediction (en): {self.untokenize_sentence(predicted_words)}', 'blue', attr=['bold'])
         )
 
-    def untokenize_sentence(self, translated_sentence_list) -> str:
+    def untokenize_sentence(self, tokens: list) -> str:
         """
             Method to untokenuze the pedicted translation.
             Returning it on as an str.
         """
-        translated_sentence_str = []
-        for word in translated_sentence_list:
-            if(word != "<eos>" and word != "<unk>"):
-                translated_sentence_str.append(word)
-        translated_sentence = TreebankWordDetokenizer().detokenize(translated_sentence_str)
-        return self.grammar.check_sentence(translated_sentence)
+        if self.source_languague == "cv":
+            tokens = self.remove_special_notation(tokens)
+            translated_sentence = TreebankWordDetokenizer().detokenize(tokens)
+            return self.grammar.check_sentence(translated_sentence)
+        
+        return " ".join(translated_sentence)
 
     def test_model(self) -> None:
         test_data = self.get_test_data()
