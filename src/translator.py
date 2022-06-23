@@ -261,7 +261,7 @@ class Seq2Seq_Translator:
                 train_acc += (correct_train) / target_count
 
             progress_bar.set_postfix(
-                epoch=f" {epoch}, val loss= {round(sum(validation_loss) / len(validation_loss), 4)}, val accu: {train_acc / len(self.valid_iterator):.4f}",
+                epoch=f" {epoch}, val loss= {round(sum(validation_loss) / len(validation_loss), 4)}, val accu: {train_acc / i + 1:.4f}",
                 refresh=False)
             progress_bar.close()
         
