@@ -31,8 +31,8 @@ from src.one_step_decoder import OneStepDecoder
 from src.grammar_checker import Grammar_checker
 
 
-BATCH_SIZE = 18
-EPOCHS = 10
+BATCH_SIZE = 10
+EPOCHS = 500
 CLIP = 1
 
 
