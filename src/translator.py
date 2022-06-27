@@ -30,7 +30,7 @@ from src.encoder_decoder import EncodeDecoder
 from src.one_step_decoder import OneStepDecoder
 from src.grammar_checker import Grammar_checker
 
-
+LEARNING_RATE = 3e-4
 BATCH_SIZE = 10
 EPOCHS = 500
 CLIP = 1
@@ -111,7 +111,7 @@ class Seq2Seq_Translator:
         self.model = self.model.to(device)
 
         # Define the optimizer
-        self.optimizer = optim.Adam(self.model.parameters())
+        self.optimizer = optim.Adam(self.model.parameters(), lr=LEARNING_RATE)
 
         # Makes sure the CrossEntropyLoss ignores the padding tokens.
         TARGET_PAD_IDX = self.target.vocab.stoi[self.target.pad_token]
