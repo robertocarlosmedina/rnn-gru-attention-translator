@@ -93,7 +93,7 @@ class Seq2Seq_Translator:
         print(colored("=> Data has been collected and processed", 'cyan'))
 
     def get_test_data(self) -> list:
-        return [(test.src, test.trg) for test in self.test_data.examples[0:20]]
+        return [(test.src, test.trg) for test in self.test_data.examples]
 
     def create_model(self):
         # Define the required dimensions and hyper parameters
