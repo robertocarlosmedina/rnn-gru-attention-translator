@@ -39,7 +39,7 @@ if args["source"] == args["target"]:
     exit(1)
 
 
-from src.translator import Seq2Seq_Translator
+from src.gru import Seq2Seq_Translator
 from src.utils import check_dataset
 # from src.flask_api import Resfull_API
 
