@@ -29,6 +29,7 @@ from src.encoder import Encoder
 from src.encoder_decoder import EncodeDecoder
 from src.one_step_decoder import OneStepDecoder
 from src.grammar_checker import Grammar_checker
+from src.utils import progress_bar
 
 LEARNING_RATE = 3e-4
 BATCH_SIZE = 10
@@ -425,8 +426,9 @@ class Seq2Seq_Translator:
             language to another.
         """
         blue_scores = []
+        len_test_data = len(self.test_data)
 
-        for example in self.test_data:
+        for i, example in enumerate(self.test_data):
             src = vars(example)["src"]
             trg = vars(example)["trg"]
             predictions = []
@@ -435,18 +437,20 @@ class Seq2Seq_Translator:
                 prediction = self.remove_special_notation(self.translate(src))
                 predictions.append(prediction)
 
-            print(f'  Source (cv): {" ".join(src)}')
-            print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
-            print(colored(f'  Predictions (en):', 'blue', attrs=['bold']))
-            [print(colored(f'      - {" ".join(prediction)}', 'blue', attrs=['bold'])) 
-                for prediction in predictions]
-            print("\n")
+            # print(f'  Source (cv): {" ".join(src)}')
+            # print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
+            # print(colored(f'  Predictions (en):', 'blue', attrs=['bold']))
+            # [print(colored(f'      - {" ".join(prediction)}', 'blue', attrs=['bold'])) 
+            #     for prediction in predictions]
+            # print("\n")
 
             score = sentence_bleu(predictions, trg)
             blue_scores.append(score if score <= 1 else 1)
 
+            progress_bar(i+1, len_test_data, f"BLUE score: {round(score, 8)}", "phases")
+
         score =  sum(blue_scores) /len(blue_scores)
-        print(colored(f"==> Bleu score: {score * 100:.2f}\n", 'blue'))
+        print(colored(f"\n\n==> Bleu score: {score * 100:.2f}\n", 'blue'))
     
     def calculate_meteor_score(self):
         """
@@ -456,8 +460,9 @@ class Seq2Seq_Translator:
             weighted higher than precision.
         """
         all_meteor_scores = []
+        len_test_data = len(self.test_data)
 
-        for example in self.test_data:
+        for i, example in enumerate(self.test_data):
             src = vars(example)["src"]
             trg = vars(example)["trg"]
             predictions = []
@@ -466,18 +471,19 @@ class Seq2Seq_Translator:
                 prediction = self.remove_special_notation(self.translate(src))
                 predictions.append(" ".join(prediction))
 
-            all_meteor_scores.append(meteor_score(
-                predictions, " ".join(trg)
-            ))
+            score = meteor_score(predictions, " ".join(trg))
+            all_meteor_scores.append(score)
             
-            print(f'  Source (cv): {" ".join(src)}')
-            print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
-            print(colored(f'  Predictions (en):', 'blue', attrs=['bold']))
-            [print(colored(f'      - {prediction}', 'blue', attrs=['bold'])) for prediction in predictions]
-            print("\n")
+            # print(f'  Source (cv): {" ".join(src)}')
+            # print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
+            # print(colored(f'  Predictions (en):', 'blue', attrs=['bold']))
+            # [print(colored(f'      - {prediction}', 'blue', attrs=['bold'])) for prediction in predictions]
+            # print("\n")
+
+            progress_bar(i+1, len_test_data, f"METEOR score: {round(score, 8)}", "phases")
 
         score = sum(all_meteor_scores)/len(all_meteor_scores)
-        print(colored(f"==> Meteor score: {score * 100:.2f}\n", 'blue'))
+        print(colored(f"\n\n==> Meteor score: {score * 100:.2f}\n", 'blue'))
 
     def calculate_ter(self):
         """
@@ -486,17 +492,21 @@ class Seq2Seq_Translator:
             machine-translated output into a human translated reference.
         """
         all_translation_ter = []
+        len_test_data = len(self.test_data)
 
-        for example in self.test_data:
+        for i, example in enumerate(self.test_data):
             src = vars(example)["src"]
             trg = vars(example)["trg"]
 
             prediction = self.remove_special_notation(self.translate(src))
 
-            print(f'  Source (cv): {" ".join(src)}')
-            print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
-            print(colored(f'  Prediction (en): {" ".join(prediction)}\n', 'blue', attrs=['bold']))
+            # print(f'  Source (cv): {" ".join(src)}')
+            # print(colored(f'  Target (en): {" ".join(trg)}', attrs=['bold']))
+            # print(colored(f'  Prediction (en): {" ".join(prediction)}\n', 'blue', attrs=['bold']))
 
+            score = ter(prediction, trg)
+            all_translation_ter.append(score)
 
-            all_translation_ter.append(ter(prediction, trg))
-        print(colored(f"==> TER score: {sum(all_translation_ter)/len(all_translation_ter) * 100:.2f}\n", 'blue'))
+            progress_bar(i+1, len_test_data, f"TER score: {round(score, 8)}", "phases")
+
+        print(colored(f"\n\n==> TER score: {sum(all_translation_ter)/len(all_translation_ter) * 100:.2f}\n", 'blue'))
