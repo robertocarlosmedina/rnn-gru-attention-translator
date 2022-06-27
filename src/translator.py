@@ -123,10 +123,12 @@ class Seq2Seq_Translator:
         print(colored("=> Loading checkpoint", "cyan"))
         try:
             checkpoint = torch.load(
-                f"checkpoints/gru-{self.source_languague}-{self.target_languague}.pth.tar")
+                f"checkpoints/gru-{self.source_languague}-{self.target_languague}.pth.tar",
+                map_location='cpu')
             self.optimizer.load_state_dict(checkpoint['optimizer'])
             self.model.load_state_dict(checkpoint['state_dict'])
-        except:
+        except Exception as e:
+            print("\n\n", e, "\n\n")
             print(colored("=> No checkpoint to Load", "red"))
     
     def save_model(self):
@@ -382,7 +384,7 @@ class Seq2Seq_Translator:
             translated_sentence = TreebankWordDetokenizer().detokenize(tokens)
             return self.grammar.check_sentence(translated_sentence)
         
-        return " ".join(translated_sentence)
+        return " ".join(tokens)
 
     def test_model(self) -> None:
         test_data = self.get_test_data()
