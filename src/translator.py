@@ -16,7 +16,7 @@ from torchtext.datasets import Multi30k
 from torchtext.data import Field, BucketIterator
 from nltk.tokenize.treebank import TreebankWordDetokenizer
 from nltk.translate.meteor_score import meteor_score
-from torchtext.data.metrics import bleu_score
+from nltk.translate.bleu_score import sentence_bleu
 import spacy
 import numpy as np
 import random
@@ -422,8 +422,7 @@ class Seq2Seq_Translator:
             the quality of text which has been machine-translated from one natural 
             language to another.
         """
-        targets = []
-        outputs = []
+        blue_scores = []
 
         for example in self.test_data:
             src = vars(example)["src"]
@@ -441,10 +440,10 @@ class Seq2Seq_Translator:
                 for prediction in predictions]
             print("\n")
 
-            targets.append(trg)
-            outputs.append(predictions)
+            score = sentence_bleu(predictions, trg)
+            blue_scores.append(score if score <= 1 else 1)
 
-        score = bleu_score(targets, outputs)
+        score =  sum(blue_scores) /len(blue_scores)
         print(colored(f"==> Bleu score: {score * 100:.2f}\n", 'blue'))
     
     def calculate_meteor_score(self):
