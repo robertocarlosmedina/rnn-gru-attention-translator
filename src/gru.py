@@ -369,10 +369,10 @@ class Seq2Seq_Translator:
         os.system("clear")
         print("\n                  CV Creole Translator Test ")
         print("-------------------------------------------------------------\n")
-        sentence = str(input("  Sentence (cv): "))
+        sentence = str(input(f"  Sentence ({self.source_languague}): "))
         predicted_words = self.translate(sentence, True)
         print(
-            colored(f'  Prediction (en): {self.untokenize_sentence(predicted_words)}', 'blue', attr=['bold'])
+            colored(f'  Prediction ({self.target_languague}): {self.untokenize_sentence(predicted_words)}', 'blue', attr=['bold'])
         )
 
     def untokenize_sentence(self, tokens: list) -> str:
@@ -396,10 +396,10 @@ class Seq2Seq_Translator:
             src, trg = " ".join(
                 data_tuple[0]), " ".join(data_tuple[1])
             translation = self.translate(src.split(" "))
-            print(f'  Source (cv): {src}')
-            print(colored(f'  Target (en): {trg}', attrs=['bold']))
+            print(f'  Source ({self.source_languague}): {src}')
+            print(colored(f'  Target ({self.target_languague}): {trg}', attrs=['bold']))
             print(
-                colored(f'  Predicted (en): {self.untokenize_sentence(translation)}\n', 'blue', attrs=['bold'])
+                colored(f'  Predicted ({self.target_languague}): {self.untokenize_sentence(translation)}\n', 'blue', attrs=['bold'])
             )
 
     def console_model_test(self) -> None:
@@ -407,10 +407,10 @@ class Seq2Seq_Translator:
         print("\n                     CV Creole Translator ")
         print("-------------------------------------------------------------\n")
         while True:
-            sentence = str(input(f'  Sentence (cv): '))
+            sentence = str(input(f'  Sentence ({self.source_languague}): '))
             translation = self.translate_sentence(sentence.split(" "))
 
-            print(colored(f'  Predicted (en): {translation}\n', 'blue', attrs=['bold']))
+            print(colored(f'  Predicted ({self.target_languague}): {translation}\n', 'blue', attrs=['bold']))
     
     def count_hyperparameters(self) -> None:
         total_parameters =  sum(p.numel() for p in self.model.parameters() if p.requires_grad)
