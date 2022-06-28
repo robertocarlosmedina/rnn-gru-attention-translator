@@ -7,7 +7,7 @@ arg_pr = argparse.ArgumentParser()
 arg_pr.add_argument(
     "-a", "--action", nargs="+", required=True,
     choices=[
-        "console", "train", "test_model", "flask_api", "blue_score",
+        "console", "train", "test_model", "blue_score",
         "meteor_score", "count_parameters", "ter_score", "confusion_matrix"
     ],
     help="Add an action to run this project"
@@ -41,7 +41,6 @@ if args["source"] == args["target"]:
 
 from src.gru import Seq2Seq_Translator
 from src.utils import check_dataset
-# from src.flask_api import Resfull_API
 
 check_dataset()
 gru_attention_translator = Seq2Seq_Translator(args["source"], args["target"])
@@ -55,7 +54,6 @@ def execute_main_actions():
         "console": gru_attention_translator.console_model_test,
         "train": gru_attention_translator.train_model,
         "test_model": gru_attention_translator.test_model,
-        # "flask_api": Resfull_API.start,
         "blue_score": gru_attention_translator.calculate_blue_score,
         "meteor_score": gru_attention_translator.calculate_meteor_score, 
         "count_parameters": gru_attention_translator.count_hyperparameters,
