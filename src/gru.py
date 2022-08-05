@@ -438,7 +438,7 @@ class Seq2Seq_Translator:
                 predictions.append(prediction)
 
             score = sentence_bleu(predictions, trg)
-            self.writer.add_scalar(f"METEOR Score ({self.source_languague}-{self.target_languague})", 
+            self.writer.add_scalar(f"BLUE Score ({self.source_languague}-{self.target_languague})", 
                 score, global_step=i)
             blue_scores.append(score if score <= 1 else 1)
 
@@ -491,7 +491,7 @@ class Seq2Seq_Translator:
 
             prediction = self.remove_special_notation(self.translate(src))
             score = ter(prediction, trg)
-            self.writer.add_scalar(f"METEOR Score ({self.source_languague}-{self.target_languague})", 
+            self.writer.add_scalar(f"TER Score ({self.source_languague}-{self.target_languague})", 
                 score, global_step=i)
             all_translation_ter.append(score)
 
